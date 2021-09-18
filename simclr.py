@@ -11,7 +11,7 @@ from utils import save_config_file, accuracy, save_checkpoint
 
 torch.manual_seed(0)
 
-
+# demo 参数 -data ./datasets -dataset-name cifar10 --n-views 2 --batch-size 5
 class SimCLR(object):
 
     def __init__(self, *args, **kwargs):
@@ -24,10 +24,24 @@ class SimCLR(object):
         self.criterion = torch.nn.CrossEntropyLoss().to(self.args.device)
 
     def info_nce_loss(self, features):
-
+        # labels:tensor([0, 1, 2, 3, 4, 0, 1, 2, 3, 4])
+        # 一个batch取5张图，这5张图做两个变换，不保留原始图，即
+        # [fig0_trans0, fig0_trans1, fig0_trans2, fig0_trans3, fig0_trans4,
+        #  fig1_trans0, fig1_trans1, fig1_trans2, fig1_trans3, fig1_trans4]
         labels = torch.cat([torch.arange(self.args.batch_size) for i in range(self.args.n_views)], dim=0)
         labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
+        # tensor([[1., 0., 0., 0., 0., 1., 0., 0., 0., 0.],
+        #         [0., 1., 0., 0., 0., 0., 1., 0., 0., 0.],
+        #         [0., 0., 1., 0., 0., 0., 0., 1., 0., 0.],
+        #         [0., 0., 0., 1., 0., 0., 0., 0., 1., 0.],
+        #         [0., 0., 0., 0., 1., 0., 0., 0., 0., 1.],
+        #         [1., 0., 0., 0., 0., 1., 0., 0., 0., 0.],
+        #         [0., 1., 0., 0., 0., 0., 1., 0., 0., 0.],
+        #         [0., 0., 1., 0., 0., 0., 0., 1., 0., 0.],
+        #         [0., 0., 0., 1., 0., 0., 0., 0., 1., 0.],
+        #         [0., 0., 0., 0., 1., 0., 0., 0., 0., 1.]])
         labels = labels.to(self.args.device)
+        print(labels)
 
         features = F.normalize(features, dim=1)
 
@@ -38,17 +52,35 @@ class SimCLR(object):
 
         # discard the main diagonal from both: labels and similarities matrix
         mask = torch.eye(labels.shape[0], dtype=torch.bool).to(self.args.device)
+        # 抹掉自己和自己的相似样本
+        # tensor([[0., 0., 0., 0., 1., 0., 0., 0., 0.],
+        #         [0., 0., 0., 0., 0., 1., 0., 0., 0.],
+        #         [0., 0., 0., 0., 0., 0., 1., 0., 0.],
+        #         [0., 0., 0., 0., 0., 0., 0., 1., 0.],
+        #         [0., 0., 0., 0., 0., 0., 0., 0., 1.],
+        #         [1., 0., 0., 0., 0., 0., 0., 0., 0.],
+        #         [0., 1., 0., 0., 0., 0., 0., 0., 0.],
+        #         [0., 0., 1., 0., 0., 0., 0., 0., 0.],
+        #         [0., 0., 0., 1., 0., 0., 0., 0., 0.],
+        #         [0., 0., 0., 0., 1., 0., 0., 0., 0.]])
+        # [10, 9]
         labels = labels[~mask].view(labels.shape[0], -1)
         similarity_matrix = similarity_matrix[~mask].view(similarity_matrix.shape[0], -1)
         # assert similarity_matrix.shape == labels.shape
+        # torch.Size([10, 9]) torch.Size([10, 9])
+        print(labels.shape, similarity_matrix.shape)
 
         # select and combine multiple positives
         positives = similarity_matrix[labels.bool()].view(labels.shape[0], -1)
 
         # select only the negatives the negatives
         negatives = similarity_matrix[~labels.bool()].view(similarity_matrix.shape[0], -1)
+        # positives.shape, negatives.shape: torch.Size([10, 1]) torch.Size([10, 8])
+        # 10 = batch_size * n_views 可以当做有10条样本，每条的softmax(或者logit)是9维的(因为去掉了自己和自己的相似)
+        print("positives.shape, negatives.shape:", positives.shape, negatives.shape)
 
         logits = torch.cat([positives, negatives], dim=1)
+        # 正例始终在第0位，正例就是自己和另一种变换的相似，和另外8种的变换是负例
         labels = torch.zeros(logits.shape[0], dtype=torch.long).to(self.args.device)
 
         logits = logits / self.args.temperature

@@ -6,6 +6,9 @@ from data_aug.contrastive_learning_dataset import ContrastiveLearningDataset
 from models.resnet_simclr import ResNetSimCLR
 from simclr import SimCLR
 
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
                      and callable(models.__dict__[name]))
@@ -67,10 +70,21 @@ def main():
     dataset = ContrastiveLearningDataset(args.data)
 
     train_dataset = dataset.get_dataset(args.dataset_name, args.n_views)
+    # x = train_dataset.__getitem__(0)
+    # print(len(x))
+    # print(len(x[0]), x[1])
+    # import sys
+    # sys.exit(0)
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True, drop_last=True)
+    # for x in train_loader:
+    #     print(len(x))
+    #     print(type(x[0]))
+    #     for _x in x[0]:
+    #         print(type(_x), _x.shape)
+    #     sys.exit(0)
 
     model = ResNetSimCLR(base_model=args.arch, out_dim=args.out_dim)
 
